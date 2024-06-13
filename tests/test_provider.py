@@ -423,6 +423,33 @@ def test_send_transaction_when_no_error_and_receipt_fails(
         connected_provider._web3 = start_web3
 
 
+def test_send_call(connected_provider, contract_instance):
+    _ = contract_instance  # Ensure contract exists.
+
+    # NOTE: Purposely doing this weird so we can invoke
+    #  .send_call() directly.
+    call = contract_instance.myNumber.as_transaction()
+    result = connected_provider.send_call(call)
+
+    assert isinstance(result, bytes)
+
+
+def test_send_call_show_trace(mocker, connected_provider, contract_instance):
+    _ = contract_instance  # Ensure contract exists.
+
+    show_fn = mocker.patch("ape_ethereum.provider.CallTrace.show")
+
+    # NOTE: Purposely doing this weird so we can invoke
+    #  .send_call() directly.
+    call = contract_instance.myNumber.as_transaction()
+    result = connected_provider.send_call(call, show_trace=True)
+
+    assert isinstance(result, bytes)
+
+    # Assert the trace was shown.
+    assert show_fn.call_count > 0
+
+
 @pytest.mark.parametrize("tx_type", TransactionType)
 def test_prepare_tx_with_max_gas(tx_type, connected_provider, ethereum, owner):
     tx = ethereum.create_transaction(type=tx_type.value, sender=owner.address)
