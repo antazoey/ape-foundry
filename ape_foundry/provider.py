@@ -26,16 +26,17 @@ from ape.logging import logger
 from ape.utils import cached_property
 from ape_ethereum.provider import Web3Provider
 from ape_test import ApeTestConfig
-from eth_pydantic_types import HexBytes, HexBytes32
 from eth_typing import HexStr
 from eth_utils import add_0x_prefix, is_0x_prefixed, is_hex, to_hex
 from pydantic import field_validator, model_validator
 from pydantic_settings import SettingsConfigDict
 from web3 import HTTPProvider, Web3
-from web3.exceptions import ContractCustomError
+from web3.exceptions import ContractCustomError, ExtraDataLengthError
 from web3.exceptions import ContractLogicError as Web3ContractLogicError
-from web3.exceptions import ExtraDataLengthError
 from web3.gas_strategies.rpc import rpc_gas_price_strategy
+
+from eth_pydantic_types import HexBytes, HexBytes32
+from eth_pydantic_types.utils import PadDirection
 
 try:
     from web3.middleware import ExtraDataToPOAMiddleware  # type: ignore
@@ -66,6 +67,9 @@ EPHEMERAL_PORTS_START = 49152
 EPHEMERAL_PORTS_END = 60999
 DEFAULT_PORT = 8545
 FOUNDRY_CHAIN_ID = 31337
+FOUNDRY_REVERT_PREFIX = (
+    "Error: VM Exception while processing transaction: reverted with reason string"
+)
 
 
 class FoundryForkConfig(PluginConfig):
@@ -345,8 +349,7 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
                 else:
                     # The user configured a host and the anvil process was already running.
                     logger.info(
-                        f"Connecting to existing '{self.process_name}' "
-                        f"at host '{self._clean_uri}'."
+                        f"Connecting to existing '{self.process_name}' at host '{self._clean_uri}'."
                     )
             else:
                 for _ in range(self.settings.process_attempts):
@@ -354,7 +357,7 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
                         self._start()
                         break
                     except FoundryNotInstalledError:
-                        # Is a sub-class of `FoundrySubprocessError` but we to still raise
+                        # Is a subclass of `FoundrySubprocessError` but we to still raise
                         # so we don't keep retrying.
                         raise
                     except SubprocessError as exc:
@@ -562,14 +565,9 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
         if not message:
             return VirtualMachineError(base_err=exception, **kwargs)
 
-        # Handle specific cases based on message content
-        foundry_prefix = (
-            "Error: VM Exception while processing transaction: reverted with reason string "
-        )
-
         # Handle Foundry error prefix
-        if message.startswith(foundry_prefix):
-            message = message.replace(foundry_prefix, "").strip("'")
+        if message.startswith(FOUNDRY_REVERT_PREFIX):
+            message = message.replace(f"{FOUNDRY_REVERT_PREFIX} ", "").strip("'")
             return self._handle_execution_reverted(exception, message, **kwargs)
 
         # Handle various cases of transaction reverts
@@ -604,6 +602,9 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
     def _handle_execution_reverted(  # type: ignore[override]
         self, exception: Exception, revert_message: Optional[str] = None, **kwargs
     ):
+        trace = kwargs.get("trace")
+        txn = kwargs.get("txn")
+
         # Assign default message if revert_message is invalid
         if revert_message == "0x":
             revert_message = TransactionError.DEFAULT_MESSAGE
@@ -618,12 +619,25 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
         enriched = self.compiler_manager.enrich_error(sub_err)
 
         # Show call trace if available
-        txn = enriched.txn
-        if txn and hasattr(txn, "show_trace"):
-            if isinstance(txn, TransactionAPI) and txn.receipt:
-                txn.receipt.show_trace()
+        if trace and callable(trace):
+            trace = trace()
+
+        if not trace and (txn := txn):
+            if isinstance(txn, TransactionAPI):
+                if txn.receipt:
+                    trace = txn.receipt.trace
+                else:
+                    # Calls it from the provider.
+                    try:
+                        trace = txn.trace
+                    except Exception:
+                        pass
+
             elif isinstance(txn, ReceiptAPI):
-                txn.show_trace()
+                trace = txn.trace
+
+        if trace:
+            trace.show()
 
         return enriched
 
@@ -668,8 +682,8 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
             "anvil_setStorageAt",
             [
                 address,
-                to_hex(HexBytes32.__eth_pydantic_validate__(slot)),
-                to_hex(HexBytes32.__eth_pydantic_validate__(value)),
+                to_hex(HexBytes32.__eth_pydantic_validate__(slot, pad=PadDirection.LEFT)),
+                to_hex(HexBytes32.__eth_pydantic_validate__(value, pad=PadDirection.LEFT)),
             ],
         )
 

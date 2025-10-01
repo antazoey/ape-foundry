@@ -8,13 +8,13 @@ from ape.contracts import ContractContainer
 from ape.exceptions import ContractLogicError, TransactionError, VirtualMachineError
 from ape_ethereum.trace import Trace
 from ape_ethereum.transactions import TransactionStatusEnum, TransactionType
-from eth_pydantic_types import HexBytes32
 from eth_utils import to_hex, to_int
 from evm_trace import CallType
 from hexbytes import HexBytes
 
 from ape_foundry import FoundryProviderError
-from ape_foundry.provider import FOUNDRY_CHAIN_ID
+from ape_foundry.provider import FOUNDRY_CHAIN_ID, FOUNDRY_REVERT_PREFIX
+from eth_pydantic_types import HexBytes32
 
 TEST_WALLET_ADDRESS = "0xD9b7fdb3FC0A0Aa3A507dCf0976bc23D49a9C7A3"
 
@@ -237,7 +237,7 @@ def test_set_code(connected_provider, contract_container, owner):
 def test_set_storage(connected_provider, contract_container, owner):
     contract = contract_container.deploy(sender=owner)
     assert to_int(connected_provider.get_storage(contract.address, "0x2b5e3af16b1880000")) == 0
-    connected_provider.set_storage(contract.address, "0x2b5e3af16b1880000", "0x1")
+    connected_provider.set_storage(contract.address, "0x2b5e3af16b1880000", "0x01")
     assert to_int(connected_provider.get_storage(contract.address, "0x2b5e3af16b1880000")) == 1
 
 
@@ -366,6 +366,13 @@ def test_get_virtual_machine_error_first_arg_not_message(connected_provider):
     exception = Exception(Exception())
     actual = connected_provider.get_virtual_machine_error(exception)
     assert isinstance(actual, VirtualMachineError)
+
+
+def test_get_virtual_machine_error_shows_trace(mocker, connected_provider):
+    mock_trace = mocker.MagicMock()
+    err = Exception(f"{FOUNDRY_REVERT_PREFIX} test")
+    _ = connected_provider.get_virtual_machine_error(err, trace=lambda: mock_trace)
+    mock_trace.show.assert_called_once()
 
 
 def test_no_mining(project, local_network, connected_provider):
