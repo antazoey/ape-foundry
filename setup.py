@@ -13,6 +13,7 @@ extras_require = {
         "ape-alchemy>=0.8.9",  # For running fork tests
         "ape-polygon",  # For running polygon fork tests
         "ape-optimism",  # For Optimism integration tests
+        "ape-tokens",  # Needed for ERC20 type in tests
     ],
     "lint": [
         "mypy>=1.13.0,<2",  # Static type analyzer
