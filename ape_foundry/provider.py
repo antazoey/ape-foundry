@@ -656,8 +656,12 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
             except Exception:
                 pass
 
-        if trace is not None and (revert_msg := trace.revert_message):
-            return revert_msg
+        if trace:
+            if callable(trace):
+                trace = trace()
+
+            if revert_msg := trace.revert_message:
+                return revert_msg
 
         return ""
 
