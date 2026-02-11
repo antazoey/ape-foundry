@@ -5,6 +5,7 @@ from ape.api.networks import LOCAL_NETWORK_NAME
 from ape.contracts import ContractInstance
 from ape.exceptions import ContractLogicError
 from ape_ethereum.ecosystem import NETWORKS
+from ape_tokens.types import ERC20
 
 from ape_foundry import FoundryNetworkConfig
 from ape_foundry.provider import FoundryForkProvider
@@ -16,6 +17,13 @@ TEST_ADDRESS = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045"
 @pytest.fixture
 def mainnet_fork_contract_instance(owner, contract_container, mainnet_fork_provider):
     return owner.deploy(contract_container)
+
+
+@pytest.fixture(scope="module")
+def usdc(chain):
+    return chain.contracts.instance_at(
+        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", contract_type=ERC20
+    )
 
 
 @pytest.mark.fork
@@ -175,12 +183,12 @@ def test_get_receipt(mainnet_fork_provider, mainnet_fork_contract_instance, owne
 
 
 @pytest.mark.fork
-def test_connect_to_polygon(networks, owner, contract_container):
+def test_connect_to_polygon(networks, owner, vyper_contract_container):
     """
     Ensures we don't get PoA middleware issue.
     """
     with networks.polygon.amoy_fork.use_provider("foundry"):
-        contract = owner.deploy(contract_container)
+        contract = owner.deploy(vyper_contract_container)
         assert isinstance(contract, ContractInstance)  # Didn't fail
 
 
@@ -208,15 +216,16 @@ def test_connect_light_client(mocker, networks, owner, contract_container):
 
 
 @pytest.mark.fork
-@pytest.mark.parametrize("network,port", [("amoy", 9878), ("mainnet", 9879)])
-def test_provider_settings(networks, network, port):
-    expected_block_number = 1234
+@pytest.mark.parametrize(
+    "network,port,block", [("amoy", 9878, 29516948), ("mainnet", 9879, 79493440)]
+)
+def test_provider_settings(networks, network, port, block):
     settings = {
         "host": f"http://127.0.0.1:{port}",
         "fork": {
             "polygon": {
                 network: {
-                    "block_number": expected_block_number,
+                    "block_number": block,
                 }
             }
         },
@@ -226,10 +235,10 @@ def test_provider_settings(networks, network, port):
     )
     actual = provider_ctx._provider.settings
     assert actual.host == settings["host"]
-    assert actual.fork["polygon"][network]["block_number"] == expected_block_number
+    assert actual.fork["polygon"][network]["block_number"] == block
 
     with provider_ctx as provider:
-        assert provider.fork_block_number == expected_block_number
+        assert provider.fork_block_number == block
 
 
 @pytest.mark.fork
@@ -259,3 +268,16 @@ def test_contract_interaction(mainnet_fork_provider, owner, mainnet_fork_contrac
 def test_fork_config_none():
     cfg = FoundryNetworkConfig.model_validate({"fork": None})
     assert isinstance(cfg["fork"], dict)
+
+
+def test_deal_erc20(accounts, usdc, mainnet_fork_provider):
+    acct = accounts[0]
+    mainnet_fork_provider.deal_erc20(acct, usdc, 123)
+    assert usdc.balanceOf(acct) == 123
+
+
+def test_set_erc20_allowance(accounts, usdc, mainnet_fork_provider):
+    acct = accounts[0]
+    spender = accounts[1]
+    mainnet_fork_provider.set_erc20_allowance(acct, spender, usdc, 123)
+    assert usdc.allowance(acct, spender) == 123

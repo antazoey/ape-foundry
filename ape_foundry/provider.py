@@ -23,6 +23,7 @@ from ape.exceptions import (
     VirtualMachineError,
 )
 from ape.logging import logger
+from ape.types.address import AddressType
 from ape.utils import cached_property
 from ape_ethereum.provider import Web3Provider
 from ape_test import ApeTestConfig
@@ -60,7 +61,7 @@ except ImportError:
     Optimism = None  # type: ignore
 
 if TYPE_CHECKING:
-    from ape.types import AddressType, BlockID, ContractCode, SnapshotID
+    from ape.types import BlockID, ContractCode, SnapshotID
 
 
 EPHEMERAL_PORTS_START = 49152
@@ -149,7 +150,7 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
     _disconnected: Optional[bool] = None
 
     @property
-    def unlocked_accounts(self) -> list["AddressType"]:
+    def unlocked_accounts(self) -> list[AddressType]:
         return list(self.account_manager.test_accounts._impersonated_accounts)
 
     @property
@@ -498,7 +499,7 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
 
         return cmd
 
-    def set_balance(self, account: "AddressType", amount: Union[int, float, str, bytes]):
+    def set_balance(self, account: AddressType, amount: Union[int, float, str, bytes]):
         is_str = isinstance(amount, str)
         is_key_word = is_str and " " in amount  # type: ignore
         _is_hex = is_str and not is_key_word and amount.startswith("0x")  # type: ignore
@@ -534,14 +535,14 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
         result = self.make_request("evm_revert", [snapshot_id])
         return result is True
 
-    def unlock_account(self, address: "AddressType") -> bool:
+    def unlock_account(self, address: AddressType) -> bool:
         self.make_request("anvil_impersonateAccount", [address])
         return True
 
-    def relock_account(self, address: "AddressType"):
+    def relock_account(self, address: AddressType):
         self.make_request("anvil_stopImpersonatingAccount", [address])
 
-    def get_balance(self, address: "AddressType", block_id: Optional["BlockID"] = None) -> int:
+    def get_balance(self, address: AddressType, block_id: Optional["BlockID"] = None) -> int:
         if result := self.make_request("eth_getBalance", [address, block_id]):
             return int(result, 16) if isinstance(result, str) else result
 
@@ -668,7 +669,7 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
     def set_block_gas_limit(self, gas_limit: int) -> bool:
         return self.make_request("evm_setBlockGasLimit", [hex(gas_limit)]) is True
 
-    def set_code(self, address: "AddressType", code: "ContractCode") -> bool:
+    def set_code(self, address: AddressType, code: "ContractCode") -> bool:
         if isinstance(code, bytes):
             code = to_hex(code)
 
@@ -681,7 +682,7 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
         self.make_request("anvil_setCode", [address, code])
         return True
 
-    def set_storage(self, address: "AddressType", slot: int, value: HexBytes):
+    def set_storage(self, address: AddressType, slot: int, value: HexBytes):
         self.make_request(
             "anvil_setStorageAt",
             [
@@ -690,6 +691,36 @@ class FoundryProvider(SubprocessProvider, Web3Provider, TestProviderAPI):
                 to_hex(HexBytes32.__eth_pydantic_validate__(value, pad=PadDirection.LEFT)),
             ],
         )
+
+    def deal_erc20(self, address: AddressType, token_address: AddressType, amount: int):
+        """
+        Deal ERC20 tokens to the given address.
+
+        Args:
+            address (str): The address to receive the tokens.
+            token_address (str): The token address.
+            amount (int): The amount to deal.
+        """
+        address = self.conversion_manager.convert(address, AddressType)
+        token_address = self.conversion_manager.convert(token_address, AddressType)
+        self.make_request("anvil_dealERC20", [address, token_address, amount])
+
+    def set_erc20_allowance(
+        self, address: AddressType, spender: AddressType, token: AddressType, allowance: int
+    ):
+        """
+        Set the ERC20 allowance for the given address.
+
+        Args:
+            address (str): The token holder.
+            spender (str): The address who can spend the tokens.
+            token (str): The token address.
+            allowance (int): The allowance to spend.
+        """
+        address = self.conversion_manager.convert(address, AddressType)
+        spender = self.conversion_manager.convert(spender, AddressType)
+        token = self.conversion_manager.convert(token, AddressType)
+        self.make_request("anvil_setERC20Allowance", [address, spender, token, allowance])
 
 
 class FoundryForkProvider(FoundryProvider):
